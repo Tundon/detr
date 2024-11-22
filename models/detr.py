@@ -224,17 +224,30 @@ class SetCriterion(nn.Module):
         # Retrieve the matching between the outputs of the last layer and the targets
         indices = self.matcher(outputs_without_aux, targets)
 
+        device = next(iter(outputs.values())).device
+
         # Compute the average number of target boxes accross all nodes, for normalization purposes
         num_boxes = sum(len(t["labels"]) for t in targets)
-        num_boxes = torch.as_tensor([num_boxes], dtype=torch.float, device=next(iter(outputs.values())).device)
-        if is_dist_avail_and_initialized():
-            torch.distributed.all_reduce(num_boxes)
-        num_boxes = torch.clamp(num_boxes / get_world_size(), min=1).item()
+        # num_boxes = torch.as_tensor([num_boxes], dtype=torch.float, device=device)
+        # if is_dist_avail_and_initialized():
+        #     torch.distributed.all_reduce(num_boxes)
+        # num_boxes = torch.clamp(num_boxes / get_world_size(), min=1).item()
+
+        # To accumulate the total loss
+        total_loss = torch.tensor(0.0, device=device)
+        def update_total(loss_dict: dict):
+            nonlocal total_loss
+            for k, v in loss_dict.items():
+                if k in self.weight_dict:
+                    total_loss += v * self.weight_dict[k]
 
         # Compute all the requested losses
         losses = {}
         for loss in self.losses:
-            losses.update(self.get_loss(loss, outputs, targets, indices, num_boxes))
+            # losses.update(self.get_loss(loss, outputs, targets, indices, num_boxes))
+            loss_dict = self.get_loss(loss, outputs, targets, indices, num_boxes)
+            losses.update(loss_dict)
+            update_total(loss_dict)
 
         # In case of auxiliary losses, we repeat this process with the output of each intermediate layer.
         if 'aux_outputs' in outputs:
@@ -249,9 +262,11 @@ class SetCriterion(nn.Module):
                         # Logging is enabled only for the last layer
                         kwargs = {'log': False}
                     l_dict = self.get_loss(loss, aux_outputs, targets, indices, num_boxes, **kwargs)
+                    update_total(l_dict)
                     l_dict = {k + f'_{i}': v for k, v in l_dict.items()}
                     losses.update(l_dict)
 
+        losses['loss'] = total_loss
         return losses
 
 

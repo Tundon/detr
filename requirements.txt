@@ -6,3 +6,7 @@ torchvision>=0.6.0
 scipy
 onnx
 onnxruntime
+lightning[pytorch-extra]>=2
+einops
+torchmetrics[detection]
+faster-coco-eval

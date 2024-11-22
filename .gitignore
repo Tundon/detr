@@ -17,3 +17,6 @@ not_tracked_dir/
 .vscode
 
 .*
+
+/data/*
+/lightning_logs
